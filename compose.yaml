@@ -1,0 +1,52 @@
+name: secure-gateway
+
+services:
+  clamd:
+    build: ./clamd
+    # real ClamAV with the offline demo signature DB; no freshclam, fully offline
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bash -c 'exec 3<>/dev/tcp/127.0.0.1/3310 && printf "zPING\0" >&3
+          && timeout 5 head -c 4 <&3 | grep -q PONG'
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  adapter:
+    build: ./adapter
+    # controllable reorder / delay / drop proxy in front of clamd
+    environment:
+      CLAMD_HOST: clamd
+      CLAMD_PORT: "3310"
+      SCAN_BACKEND: clamd
+    ports:
+      - "8080:8080"   # behaviour control endpoint (GET/POST /config)
+    depends_on:
+      clamd:
+        condition: service_healthy
+
+  api:
+    build: ./api
+    environment:
+      SCANNER_HOST: adapter
+      SCANNER_PORT: "3311"
+      MAX_INFLIGHT: "4"
+      SCAN_TIMEOUT_S: "5"
+      DATA_DIR: /data
+    ports:
+      - "8000:8000"   # interactive demo at http://localhost:8000/docs
+    volumes:
+      - api-data:/data   # survives restarts: published files stay downloadable
+    depends_on:
+      adapter:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  api-data:

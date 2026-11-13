@@ -1,0 +1,2 @@
+This is a harmless demo document for the secure gateway.
+It contains no test signature and must scan CLEAN.
